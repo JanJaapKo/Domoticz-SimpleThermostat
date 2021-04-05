@@ -13,7 +13,7 @@
 # Domoticz plugin to a simple thermostat
 #
 """
-<plugin key="Domoticz-SimpleThermostat" name="Simple thermostat" author="Jan-Jaap Kostelijk" wikilink="https://github.com/JanJaapKo/DysonPureLink/wiki" externallink="https://github.com/JanJaapKo/DysonPureLink">
+<plugin key="Domoticz-SimpleThermostat" name="Thermostat simple" author="Jan-Jaap Kostelijk" version="0.1.0" wikilink="https://github.com/JanJaapKo/DysonPureLink/wiki" externallink="https://github.com/JanJaapKo/DysonPureLink">
     <description>
         <h2>Sinple thermostat plugin</h2><br/>
         It reads the machine's states and sensors and it can control it via commands.<br/><br/>
@@ -21,6 +21,8 @@
         <h2>Configuration</h2>
         MAin configuration is to connect the involved Domoticz Devcies. Look the IOdx's from Domoticz Device page (menu Setup -> Devices).<br/><br/>
         <ol>
+            <li>The IP adress of the Domoticz instance that holds the thermometer and switch</li>
+            <li>port number for the Domoticz instance</li>
             <li>Idx of the temperature setpoint</li>
             <li>Idx of the themometer (actual temperature)</li>
             <li>Idx os the switch that controls the heater</li>
@@ -30,8 +32,10 @@
         
     </description>
     <params>
+        <param field="Address" label="Domoticz IP Address" required="true" default="127.0.0.1"/>
+        <param field="Port" label="Domoticz Port" width="30px" required="true" default="8080"/>
         <param field="Mode3" label="Thermometer IDX" required="true" default="0"/>
-        <param field="Mode4" label="Hater IDX" required="true" default="0"/>
+        <param field="Mode4" label="Heater IDX" required="true" default="0"/>
         <param field="Mode2" label="Refresh interval" width="75px">
             <options>
                 <option label="30s" value="3"/>
@@ -54,25 +58,33 @@
 
 import Domoticz
 import json
-import time
+import urllib
+import urllib2
+import requests
 
 class SimpleThermostatPlugin:
     #define class variables
     #plugin version
-    version = "0.1.0"
     enabled = False
     runCounter = 6
-
+    ThermostatUnit = 1
+    
     def __init__(self):
-        pass
+        self.httpClient = None
+        self.connected = False
 
     def onStart(self):
         Domoticz.Debug("onStart called")
         #read out config parameters
-        self.Thermometer = int(Parameters['Mode3'])
-        self.Heater = int(Parameters['Mode4'])
+        self.version = Parameters["Version"]
+        self.version = "0.1.0"
+        self.Thermometer = Parameters['Mode3']
+        self.Heater = Parameters['Mode4']
         self.runCounter = int(Parameters['Mode2'])
-        self.log_level = Parameters['Mode4']
+        self.log_level = Parameters['Mode6']
+        self.baseDeviceUrl = "{0}:{1}/json.htm?type=devices&rid=".format(Parameters["Address"].strip(),Parameters["Port"].strip())
+        self.ThermometerUrl = self.baseDeviceUrl + self.Thermometer
+        self.HeaterUrl = self.baseDeviceUrl + self.Heater
         
         if self.log_level == 'Debug':
             Domoticz.Debugging(2)
@@ -86,21 +98,39 @@ class SimpleThermostatPlugin:
         
         self.checkVersion(self.version)
         
+        #create thermostat device
+        if self.ThermostatUnit not in Devices:
+            Domoticz.Device(Name='Heat target', Unit=self.ThermostatUnit, Type=242, Subtype=1).Create()
+            
+        #create connection to Domotic to fetch other device status
+        self.httpClient = Domoticz.Connection(Name="JSON Connection", Transport="TCP/IP", Protocol="JSON", Address=Parameters["Address"], Port=Parameters["Port"])
+
+        Domoticz.Debug("created some URLs: '{0}', '{1}'".format(self.ThermometerUrl,self.HeaterUrl))
+        
     def onStop(self):
         Domoticz.Debug("onStop called")
 
     def onCommand(self, Unit, Command, Level, Hue):
         Domoticz.Debug("onCommand called for Unit " + str(Unit) + ": Parameter '" + str(Command) + "', Level: " + str(Level))
+        if Unit == self.ThermostatUnit:
+            UpdateDevice(self.ThermostatUnit, 0, Level)
 
     def onConnect(self, Connection, Status, Description):
         Domoticz.Debug("onConnect called: Connection '"+str(Connection)+"', Status: '"+str(Status)+"', Description: '"+Description+"'")
-        self.mqttClient.onConnect(Connection, Status, Description)
+        #self.mqttClient.onConnect(Connection, Status, Description)
+        if Status == 0:
+            self.connected = True
+        else:
+            self.connected = False
 
     def onDisconnect(self, Connection):
-        self.mqttClient.onDisconnect(Connection)
+        Domoticz.Debug("onDisconnect called: Connection '"+str(Connection)+"'")
+        self.connected = False
+        #self.mqttClient.onDisconnect(Connection)
 
     def onMessage(self, Connection, Data):
-        self.mqttClient.onMessage(Connection, Data)
+        Domoticz.Debug("onMessage called: Connection '"+str(Connection)+"', Data: '"+str(Data)+"'")
+        #self.mqttClient.onMessage(Connection, Data)
 
     def onNotification(self, Name, Subject, Text, Status, Priority, Sound, ImageFile):
         Domoticz.Log("onNotification: " + Name + "," + Subject + "," + Text + "," + Status + "," + str(Priority) + "," + Sound + "," + ImageFile)
@@ -110,6 +140,16 @@ class SimpleThermostatPlugin:
         if self.runCounter <= 0:
             Domoticz.Debug("DysonPureLink plugin: Poll unit")
             self.runCounter = int(Parameters['Mode2'])
+            if self.connected:
+                try:
+                    request = urllib2.Request(self.ThermometerUrl)
+                    response = urllib2.urlopen(request)
+                    # except urllib2.HTTPError, e:
+                        # Domoticz.Error("{0}".format(e.code))
+                    # except urllib2.URLError, e:
+                      # Domoticz.Error("{0}".format(e.args))
+            else:
+                self.httpClient.Connect()
         else:
             Domoticz.Debug("Polling unit in " + str(self.runCounter) + " heartbeats.")
 
@@ -242,7 +282,7 @@ def UpdateDevice(Unit, nValue, sValue, BatteryLevel=255, AlwaysUpdate=False):
         ))
         
 global _plugin
-_plugin = DysonPureLinkPlugin()
+_plugin = SimpleThermostatPlugin()
 
 def onStart():
     global _plugin
