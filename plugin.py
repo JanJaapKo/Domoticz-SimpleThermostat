@@ -58,9 +58,10 @@
 
 import Domoticz
 import json
-import urllib
-import urllib2
-import requests
+#import urllib
+#import urllib2
+#import requests
+from http import httpClient
 
 class SimpleThermostatPlugin:
     #define class variables
@@ -140,16 +141,16 @@ class SimpleThermostatPlugin:
         if self.runCounter <= 0:
             Domoticz.Debug("DysonPureLink plugin: Poll unit")
             self.runCounter = int(Parameters['Mode2'])
-            if self.connected:
-                try:
-                    request = urllib2.Request(self.ThermometerUrl)
-                    response = urllib2.urlopen(request)
-                    # except urllib2.HTTPError, e:
-                        # Domoticz.Error("{0}".format(e.code))
-                    # except urllib2.URLError, e:
-                      # Domoticz.Error("{0}".format(e.args))
-            else:
-                self.httpClient.Connect()
+            # if self.connected:
+                # try:
+                    # request = urllib2.Request(self.ThermometerUrl)
+                    # response = urllib2.urlopen(request)
+                    # # except urllib2.HTTPError, e:
+                        # # Domoticz.Error("{0}".format(e.code))
+                    # # except urllib2.URLError, e:
+                      # # Domoticz.Error("{0}".format(e.args))
+            # else:
+                # self.httpClient.Connect()
         else:
             Domoticz.Debug("Polling unit in " + str(self.runCounter) + " heartbeats.")
 
