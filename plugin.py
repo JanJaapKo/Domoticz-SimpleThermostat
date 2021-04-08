@@ -118,7 +118,7 @@ class SimpleThermostatPlugin:
 
     def onConnect(self, Connection, Status, Description):
         Domoticz.Debug("onConnect called: Connection '"+str(Connection)+"', Status: '"+str(Status)+"', Description: '"+Description+"'")
-        #self.mqttClient.onConnect(Connection, Status, Description)
+        #self.httpClient.onConnect(Connection, Status, Description)
         if Status == 0:
             self.connected = True
         else:
@@ -127,32 +127,32 @@ class SimpleThermostatPlugin:
     def onDisconnect(self, Connection):
         Domoticz.Debug("onDisconnect called: Connection '"+str(Connection)+"'")
         self.connected = False
-        #self.mqttClient.onDisconnect(Connection)
+        #self.httpClient.onDisconnect(Connection)
 
     def onMessage(self, Connection, Data):
         Domoticz.Debug("onMessage called: Connection '"+str(Connection)+"', Data: '"+str(Data)+"'")
-        #self.mqttClient.onMessage(Connection, Data)
+        #self.httpClient.onMessage(Connection, Data)
 
     def onNotification(self, Name, Subject, Text, Status, Priority, Sound, ImageFile):
         Domoticz.Log("onNotification: " + Name + "," + Subject + "," + Text + "," + Status + "," + str(Priority) + "," + Sound + "," + ImageFile)
 
     def onHeartbeat(self):
-        self.runCounter = self.runCounter - 1
-        if self.runCounter <= 0:
-            Domoticz.Debug("DysonPureLink plugin: Poll unit")
-            self.runCounter = int(Parameters['Mode2'])
-            # if self.connected:
-                # try:
-                    # request = urllib2.Request(self.ThermometerUrl)
-                    # response = urllib2.urlopen(request)
-                    # # except urllib2.HTTPError, e:
-                        # # Domoticz.Error("{0}".format(e.code))
-                    # # except urllib2.URLError, e:
-                      # # Domoticz.Error("{0}".format(e.args))
-            # else:
-                # self.httpClient.Connect()
-        else:
-            Domoticz.Debug("Polling unit in " + str(self.runCounter) + " heartbeats.")
+        if self.myDevice != None:
+            self.runCounter = self.runCounter - 1
+            # self.pingCounter = self.pingCounter - 1
+            # if self.pingCounter <= 0 and self.runCounter > 0:
+                # self.httpClient.onHeartbeat()
+                # self.pingCounter = int(int(Parameters['Mode2'])/2)
+            if self.runCounter <= 0:
+                Domoticz.Debug("DysonPureLink plugin: Poll unit")
+                self.runCounter = int(Parameters['Mode2'])
+                #self.pingCounter = int(int(Parameters['Mode2'])/2)
+                topic, payload = self.myDevice.request_state()
+                self.httpClient.Publish(topic, payload) #ask for update of current status
+                
+            else:
+                Domoticz.Debug("Polling unit in " + str(self.runCounter) + " heartbeats.")
+                self.httpClient.onHeartbeat()
 
     def onDeviceRemoved(self, unit):
         Domoticz.Log("onDeviceRemoved called for unit '" + str(unit) + "'")
@@ -205,6 +205,46 @@ class SimpleThermostatPlugin:
             UpdateDevice(self.heatStateUnit, self.state_data.heat_state.state, str((self.state_data.heat_state.state+1)*10))
         Domoticz.Debug("update StateData: " + str(self.state_data))
 
+
+    def onhttpConnected(self):
+        """connection to device established"""
+        Domoticz.Debug("onhttpConnected called")
+        Domoticz.Log("http connection established")
+        self.httpClient.Subscribe([self.base_topic + '/status/current', self.base_topic + '/status/connection', self.base_topic + '/status/faults']) #subscribe to all topics on the machine
+        topic, payload = self.myDevice.request_state()
+        self.httpClient.Publish(topic, payload) #ask for update of current status
+
+    def onhttpDisconnected(self):
+        Domoticz.Debug("onhttpDisconnected")
+
+    def onhttpSubscribed(self):
+        Domoticz.Debug("onhttpSubscribed")
+        
+    def onhttpPublish(self, topic, message):
+        Domoticz.Debug("http Publish: http message incoming: " + topic + " " + str(message))
+
+        if (topic == self.base_topic + '/status/current'):
+            #update of the machine's status
+            if StateData.is_state_data(message):
+                Domoticz.Debug("machine state or state change recieved")
+                self.state_data = StateData(message)
+                self.updateDevices()
+            if SensorsData.is_sensors_data(message):
+                Domoticz.Debug("sensor state recieved")
+                self.sensor_data = SensorsData(message)
+                self.updateSensors()
+
+        if (topic == self.base_topic + '/status/connection'):
+            #connection status received
+            Domoticz.Debug("connection state recieved")
+
+        if (topic == self.base_topic + '/status/software'):
+            #connection status received
+            Domoticz.Debug("software state recieved")
+            
+        if (topic == self.base_topic + '/status/summary'):
+            #connection status received
+            Domoticz.Debug("summary state recieved")
 
     def checkVersion(self, version):
         """checks actual version against stored version as 'Ma.Mi.Pa' and checks if updates needed"""
